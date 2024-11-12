@@ -7,6 +7,7 @@ This project is a simple web-based MQTT client built with VueJS, Quasar, using t
 
 ## Key Features
 
+- **Quasar Framework**: Used Quasar Framework 2.6 UMD version, with CSS animated values and Plotly JS as chart
 - **URL-Based Configuration**: Configure the MQTT connection using URL parameters, allowing dynamic specification of the broker, port, username, and password.
 - **Real-Time Message Handling**: Logs messages received from subscribed topics directly in the browser console.
 
@@ -22,3 +23,13 @@ This project is a simple web-based MQTT client built with VueJS, Quasar, using t
 Use the following URL format to specify connection details for the MQTT client:
 
 [https://tjunussov.github.io/mqttMyAdmin/?broker=broker.hivemq.com&port=8000&username=user&password=pass](https://tjunussov.github.io/mqttMyAdmin/?broker=broker.hivemq.com&port=8000&username=user&password=pass)
+
+### ToDo
+- persist settings
+- persist historcal data
+- red flags alers
+- grouping metrics
+- sound fx
+- polish ui like hivemq
+- attach custom domain
+- 
