@@ -1,0 +1,254 @@
+<!DOCTYPE html>
+<html lang="en">
+
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>MQTT Dashboard</title>
+  <link href="https://cdn.jsdelivr.net/npm/quasar@2.16.9/dist/quasar.prod.css" rel="stylesheet" type="text/css">
+
+  <style>
+.card {
+  height: 100px;
+  min-width: 200px;
+  display: flex;
+  flex-direction: column;
+  justify-content: end;
+  position: relative;
+}
+
+.chart {
+  width: 100%;
+  height: 100px;
+  position: absolute;
+  bottom: 0;
+}
+
+@property --num {
+  syntax: '<number>';
+  initial-value: 0;
+  inherits: false;
+}
+@property --temp {
+  syntax: "<number>";
+  initial-value: 0;
+  inherits: false;
+}
+@property --v1 {
+  syntax: "<integer>";
+  initial-value: 0;
+  inherits: false;
+}
+@property --v2 {
+  syntax: "<integer>";
+  initial-value: 0;
+  inherits: false;
+}
+
+.anim2 {
+  transition: --num 10s;
+  --temp: var(--num);
+  --v1: max(var(--temp) - 0.5, 0);
+  --v2: max((var(--temp) - var(--v1)) * 100 - 0.5, 0);
+  counter-reset: v1 var(--v1) v2 var(--v2);
+}
+.anim2::after {
+  content: "." counter(v2);
+  font-size: 12pt;
+}
+.anim2::before {
+  content: counter(v1);
+}
+.anim {
+  transition: --num 1s;
+  counter-reset: num var(--num);
+}
+.anim::after {
+  content: counter(num);
+}
+</style>
+</head>
+
+<body class="dark">
+  <div id="q-app">
+      <div class="q-gutter-sm row">
+        <metric :ref="(el) => (metricsRef[t] = el)" v-for="t in topics" :topic="t"></metric>
+      </div>
+  </div>
+  <script src="https://cdn.plot.ly/plotly-latest.min.js"></script>
+  <script src="https://cdn.jsdelivr.net/npm/vue@3/dist/vue.global.prod.js"></script>
+  <script src="https://cdn.jsdelivr.net/npm/quasar@2.16.9/dist/quasar.umd.prod.js"></script>
+  <script src="https://unpkg.com/mqtt/dist/mqtt.min.js"></script>
+
+  <script>
+  const { ref, useTemplateRef, defineComponent, computed, onMounted } = Vue
+
+    // Parse URL parameters
+  const urlParams = new URLSearchParams(window.location.search);
+  const broker = urlParams.get('broker') || 'mqtt.bein.tech';  // Default broker if not provided
+  const port = urlParams.get('port') || '443';  // Default WebSocket port
+  const username = urlParams.get('username');
+  const password = urlParams.get('password');
+
+  // Construct MQTT connection options
+  const options = {
+    protocol: 'wss',  // WebSocket protocol
+    hostname: broker,
+    port: parseInt(port, 10),
+  };
+
+  // Add authentication if username and password are provided
+  if (username && password) {
+    options.username = username;
+    options.password = password;
+  }
+
+    const client = mqtt.connect(options)
+    client.setMaxListeners(10)
+
+    // Define a reusable component for each dashboard card
+    const metric = defineComponent({
+      props: ['topic'],
+      setup(props) {
+        const value = ref(0)
+        const dataPoints = ref([])
+        const timestamps = ref([])
+
+        const label = computed(() => {
+          return props.topic.split('/').splice(2).join(' ');
+        })
+
+        // Plotly chart renderer for the background
+        function renderChart() {
+          const chartElement = document.getElementById(`${label.value}-chart`)
+          const trace = {
+            x: timestamps.value,
+            y: dataPoints.value,
+            type: 'scatter',
+            mode: 'lines',
+            fill: 'tozeroy',  // Fills the area below the line
+            fillcolor: 'rgba(0, 123, 255, 0.1)',  // Semi-transparent blue fill color
+            line: { color: 'rgba(0, 123, 255, 0.8)',shape: 'spline', smoothing: 1.3   } 
+          }
+          const layout = {
+            margin: { l: 0, r: 0, t: 0, b: 0 },  // Remove margins
+            showlegend: false,  // Hide legend
+            plot_bgcolor: 'rgba(0,0,0,0)',  // Transparent plot background
+            paper_bgcolor: 'rgba(0,0,0,0)',
+            xaxis: { tickformat: '%H:%M:%S', "visible": false,
+              showgrid: false,
+              zeroline: false,
+              showline: false,  // Hide axis line
+              showticklabels: false  // Hide tick labels 
+            },
+            yaxis: { fixedrange: true,showgrid: false,zeroline: false, visible: false, showline: false,  // Hide axis line
+              showticklabels: false  // Hide tick labels  
+              },
+          }
+          Plotly.newPlot(chartElement, [trace], layout, { staticPlot: true })
+        }
+
+        function add(message) {
+         const metricValue = parseFloat(message)||message;
+          value.value = metricValue;
+
+          const timestamp = new Date().toLocaleTimeString()
+          dataPoints.value.push(metricValue)
+          timestamps.value.push(timestamp)
+
+          if (dataPoints.value.length > 20) {
+            dataPoints.value.shift()
+            timestamps.value.shift()
+          }
+          renderChart()
+        }
+
+        function isDecimalClass(v,c1,c2){
+          return Number.isSafeInteger(v)?c1:c2
+        }
+
+        return { value, label, isDecimalClass, add }
+      },
+      template: `
+        <q-card class="card">
+          <div :id="label + '-chart'" class="chart"></div>
+          <q-card-section class="q-py-sm">
+            <div class="text" v-html="label"></div>
+            <div class="text-h5" :class="{[isDecimalClass(value,'anim','anim2')]:true}" :style="{'--num':value}"></div>
+          </q-card-section>
+        </q-card>
+      `
+    })
+
+    const app = Vue.createApp({
+      components: { metric },
+      setup(){
+        const metricsRef = ref({});
+
+        Quasar.Dark.set(true);
+        const topics = `$SYS/broker/bytes/received
+$SYS/broker/bytes/sent
+$SYS/broker/clients/connected
+$SYS/broker/subscriptions/count
+$SYS/broker/clients/expired
+$SYS/broker/clients/disconnected
+$SYS/broker/clients/maximum
+$SYS/broker/clients/total
+$SYS/broker/heap/current size
+$SYS/broker/heap/maximum size
+$SYS/broker/messages/inflight
+$SYS/broker/messages/received
+$SYS/broker/messages/sent
+$SYS/broker/publish/messages/dropped
+$SYS/broker/publish/messages/received
+$SYS/broker/publish/messages/sent
+$SYS/broker/retained messages/count
+$SYS/broker/store/messages/count
+$SYS/broker/load/messages/received/5min
+$SYS/broker/load/messages/received/15min
+$SYS/broker/load/messages/sent/1min
+$SYS/broker/load/messages/sent/5min
+$SYS/broker/load/messages/sent/15min
+$SYS/broker/load/publish/received/1min
+$SYS/broker/load/publish/received/5min
+$SYS/broker/load/publish/received/15min
+$SYS/broker/load/publish/sent/1min
+$SYS/broker/load/publish/sent/5min
+$SYS/broker/load/publish/sent/15min
+$SYS/broker/load/bytes/received/1min
+$SYS/broker/load/bytes/received/5min
+$SYS/broker/load/bytes/received/15min
+$SYS/broker/load/bytes/sent/1min
+$SYS/broker/load/bytes/sent/5min
+$SYS/broker/load/bytes/sent/15min
+$SYS/broker/load/sockets/1min
+$SYS/broker/load/sockets/5min
+$SYS/broker/load/sockets/15min
+$SYS/broker/load/connections/1min
+$SYS/broker/load/connections/5min
+$SYS/broker/load/connections/15min
+$SYS/broker/store/messages/bytes
+$SYS/broker/version
+$SYS/broker/uptime`.split('\n');
+
+client.on('connect', () => {
+  client.subscribe("$SYS/broker/#")
+  client.subscribe("$SYS/broker/clients/connected")
+})
+
+client.on('message', (topic, message) => {
+    message = message.toString();
+    if(metricsRef.value[topic]) metricsRef.value[topic].add(message);
+})
+
+return {topics,metricsRef};
+  },
+})
+
+app.use(Quasar)
+app.mount('#q-app');
+
+  </script>
+</body>
+
+</html>
